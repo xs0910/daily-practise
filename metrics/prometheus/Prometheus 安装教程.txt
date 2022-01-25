@@ -1,0 +1,206 @@
+mkdir -p /home/prometheus
+mkdir -p /home/prometheus/server
+mkdir -p /home/prometheus/client
+touch /home/prometheus/server/rules.yml
+chmod 777 /home/prometheus/server/rules.yml
+touch /home/prometheus/server/prometheus.yml
+chmod 777 /home/prometheus/server/prometheus.yml
+
+vim /home/prometheus/server/prometheus.yml
+global:
+  scrape_interval:
+  external_labels:
+   monitor: 'codelab-monitor'
+# 这里表示抓取对象的配置
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+    - targets: ['localhost:9090']
+
+docker rm -f prometheus
+docker run --name=prometheus -d \
+-p 9090:9090 \
+-v /home/prometheus/server/prometheus.yml:/etc/prometheus/prometheus.yml \
+-v /home/prometheus/server/rules.yml:/etc/prometheus/rules.yml \
+prom/prometheus:v2.7.2 \
+--config.file=/etc/prometheus/prometheus.yml \
+--web.enable-lifecycle
+
+启动时加上--web.enable-lifecycle启用远程热加载配置文件
+调用指令是curl -X POST http://localhost:9090/-/reload
+
+
+1.通过golang客户端提供metrics
+mkdir -p /home/prometheus/client/golang/src
+cd !$
+export GOPATH=/home/prometheus/client/golang/
+#克隆项目
+git clone https://github.com/prometheus/client_golang.git
+#安装需要FQ的第三方包
+mkdir -p $GOPATH/src/golang.org/x/
+cd !$
+git clone https://github.com/golang/net.git
+git clone https://github.com/golang/sys.git
+git clone https://github.com/golang/tools.git
+#安装必要软件包
+go get -u -v github.com/prometheus/client_golang/prometheus
+#编译
+cd $GOPATH/src/client_golang/examples/random
+go build -o random main.go
+
+
+lsof -i tcp:8083  # 查看端口
+./random -listen-address=:8081 & ./random -listen-address=:8082 & ./random -listen-address=:8083
+
+
+docker run -d \
+--name=node-exporter \
+-p 9100:9100 \
+prom/node-exporter
+
+
+global:
+  scrape_interval: 15s
+  external_labels:
+   monitor: 'codelab-monitor'
+# 这里表示抓取对象的配置
+scrape_configs:
+  - job_name: 'prometheus'
+    scrape_interval: 5s # 重写了全局抓取间隔时间，由15秒重写成5秒
+    static_configs:
+    - targets: ['localhost:9090']
+    - targets: ['192.168.81.103:8081', '192.168.81.103:8082', '192.168.81.103:8083'] # 需要用ip，不能用localhost
+      labels:
+        group: 'client-golang'
+    - targets: ['192.168.81.103:9100'] # 需要用ip，不能用localhost
+      labels:
+        group: 'client-node-exporter'
+
+
+curl -X POST http://localhost:9090/-/reload
+http://192.168.81.103:9090/targets
+
+三、安装pushgateway
+mkdir -p /home/prometheus/pushgateway
+cd !$
+docker run -d -p 9091:9091 --name pushgateway prom/pushgateway
+
+往pushgateway 推送数据
+推送一个指标
+echo "cqh_metric 100" | curl --data-binary @- http://localhost:9091/metrics/job/cqh
+
+推送多个指标
+cat <<EOF | curl --data-binary @- http://localhost:9091/metrics/job/cqh/instance/test
+# 锻炼场所价格
+muscle_metric{label="gym"} 8800
+# 三大项数据 kg
+bench_press 160
+dead_lift 170
+deep_squat 180
+EOF
+
+
+global:
+  scrape_interval: 15s
+  external_labels:
+   monitor: 'codelab-monitor'
+# 这里表示抓取对象的配置
+scrape_configs:
+  - job_name: 'prometheus'
+    scrape_interval: 5s # 重写了全局抓取间隔时间，由15秒重写成5秒
+    static_configs:
+    - targets: ['localhost:9090']
+    - targets: ['192.168.81.103:8081', '192.168.81.103:8082', '192.168.81.103:8083'] # 需要用ip，不能用localhost
+      labels:
+        group: 'client-golang'
+    - targets: ['192.168.81.103:9100'] # 需要用ip，不能用localhost
+      labels:
+        group: 'client-node-exporter'
+    - targets: ['192.168.81.103:9091'] # 需要用ip，不能用localhost
+      labels:
+        group: 'push-gateway'
+
+
+curl -X POST http://localhost:9090/-/reload
+
+四、安装Grafana
+docker run -d -p 3000:3000 --name grafana grafana/grafana
+
+
+五、安装 AlterManager
+mkdir -p /home/prometheus/alertmanager
+
+vi alertmanager.yml
+global:
+  resolve_timeout: 5m
+route:
+  group_by: ['cqh']
+  group_wait: 10s     #组报警等待时间
+  group_interval: 10s #组报警间隔时间
+  repeat_interval: 1m #重复报警间隔时间
+  receiver: 'web.hook'
+receivers:
+  - name: 'web.hook'
+    webhook_configs:
+      - url: 'http://192.168.81.103:8888/open/test'
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'dev', 'instance']
+
+这里配置成了web.hook的方式，当server通知alertmanager会自动调用webhook http://192.168.81.103:8888/open/test
+
+docker run -d -p 9093:9093 \
+--name alertmanager \
+-v /home/prometheus/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml \
+prom/alertmanager
+
+
+
+修改规则：/home/prometheus/server/rules.yml
+
+groups:
+  - name: cqh
+    rules:
+      - alert: cqh测试
+        expr: dead_lift > 150
+        for: 1m
+        labels:
+          status: warning
+        annotations:
+          summary: "{{$labels.instance}}:硬拉超标！lightweight baby!!!"
+          description: "{{$labels.instance}}:硬拉超标！lightweight baby!!!"
+		  
+		  
+再修改Prometheus的alertmanager配置
+global:
+  scrape_interval: 15s # 默认抓取间隔, 15秒向目标抓取一次数据。
+  external_labels:
+    monitor: 'codelab-monitor'
+rule_files:
+  - /etc/prometheus/rules.yml
+# 这里表示抓取对象的配置
+scrape_configs:
+  #这个配置是表示在这个配置内的时间序例，每一条都会自动添加上这个{job_name:"prometheus"}的标签  - job_name: 'prometheus'
+  - job_name: 'prometheus'
+    scrape_interval: 5s # 重写了全局抓取间隔时间，由15秒重写成5秒
+    static_configs:
+      - targets: ['localhost:9090']
+      - targets: ['192.168.81.103:8081', '192.168.81.103:8082','192.168.81.103:8083']
+        labels:
+          group: 'client-golang'
+      - targets: ['192.168.81.103:9100']
+        labels:
+          group: 'client-node-exporter'
+      - targets: ['192.168.81.103:9091']
+        labels:
+          group: 'pushgateway'
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["192.168.81.103:9093"]
+		
+		
+curl -X POST http://localhost:9090/-/reload
