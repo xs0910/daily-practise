@@ -7,9 +7,11 @@ require (
 	github.com/casbin/casbin v1.9.1
 	github.com/casbin/xorm-adapter v1.0.0
 	github.com/gin-gonic/gin v1.7.7
+	github.com/go-redis/redis/v8 v8.11.4
+	github.com/go-redsync/redsync/v4 v4.5.0
 	github.com/go-sql-driver/mysql v1.6.0
 	github.com/go-xorm/xorm v0.7.9 // indirect
-	github.com/golang/mock v1.6.0 // indirect
+	github.com/golang/mock v1.6.0
 	github.com/google/gops v0.3.22
 	github.com/google/uuid v1.3.0
 	github.com/lib/pq v1.10.4 // indirect
