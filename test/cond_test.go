@@ -31,7 +31,7 @@ func broadcast(c *sync.Cond) {
 	atomic.StoreInt64(&status, 1)
 	// c.Signal()    // 唤醒队列前面的一个Goroutine
 	c.Broadcast() // 唤醒队列中全部的Goroutine
-	// 唤醒的顺序也是按照加入队列的先后顺序，先加入的会先被唤醒，而后加入的可能需要等待调度器的调度
+	//  唤醒的顺序也是按照加入队列的先后顺序，先加入的会先被唤醒，而后加入的可能需要等待调度器的调度
 }
 
 func listen(c *sync.Cond) {
