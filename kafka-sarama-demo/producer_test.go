@@ -11,12 +11,13 @@ import (
 func TestProducer(t *testing.T) {
 	fmt.Printf("producer_test\n")
 	config := sarama.NewConfig()
-	config.Producer.RequiredAcks = sarama.WaitForAll
-	config.Producer.Partitioner = sarama.NewRandomPartitioner
-	config.Producer.Return.Successes = true
+	config.Producer.RequiredAcks = sarama.WaitForAll          // 发送完数据需要leader和follow都确认
+	config.Producer.Partitioner = sarama.NewRandomPartitioner // 新选出一个partition
+	config.Producer.Return.Successes = true                   // 成功交付的消息将在success channel 返回
 	config.Producer.Return.Errors = true
 	config.Version = sarama.V2_1_0_0
 
+	// 异步连接kafka
 	producer, err := sarama.NewAsyncProducer([]string{"192.168.81.110:9092"}, config)
 	if err != nil {
 		fmt.Printf("producer_test create producer error :%s\n", err.Error())
@@ -25,7 +26,7 @@ func TestProducer(t *testing.T) {
 
 	defer producer.AsyncClose()
 
-	// send message
+	// send message 构造一个消息
 	msg := &sarama.ProducerMessage{
 		Topic: "kafka_go_test",
 		Key:   sarama.StringEncoder("go_test"),
